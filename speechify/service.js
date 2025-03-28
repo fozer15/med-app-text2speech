@@ -5,12 +5,15 @@ import path from "path";
 import { fileURLToPath } from "url";
 import { Readable } from "stream"; // Native Node.js module
 import express from "express";
+import dotenv from "dotenv"; // Import dotenv
+
+dotenv.config(); // Load environment variables from .env file
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
 const speechify = new Speechify({
-    apiKey: "v4FYjUDJ9DSMjmpdvCs0056UZdcPkDGIf2tvIKl6Iak=", // Load securely, e.g., from environment variables
+    apiKey: process.env.SPEECHIFY_API_KEY, // Load API key from environment variables
 });
 
 async function getMeditations() {
