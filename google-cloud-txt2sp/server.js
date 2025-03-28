@@ -9,12 +9,21 @@ process.env.GOOGLE_APPLICATION_CREDENTIALS = 'text-to-speech-454804-2f72607dd36e
 const client = new textToSpeech.TextToSpeechClient();
 
 // Define the SSML input and output file
-const sp = 'Relax your body and mind. Let go of all your worries.';
+const sp = "<speak> Hello there. <break time='20s'/> How are you today? </speak>"
 const outputFile = 'meditation_output.mp3';
 
+// Name: en-US-Chirp3-HD-Aoede, Language Codes: en-US, SSML Gender: FEMALE
+// Name: en-US-Chirp3-HD-Charon, Language Codes: en-US, SSML Gender: MALE
+// Name: en-US-Chirp3-HD-Fenrir, Language Codes: en-US, SSML Gender: MALE
+// Name: en-US-Chirp3-HD-Kore, Language Codes: en-US, SSML Gender: FEMALE
+// Name: en-US-Chirp3-HD-Leda, Language Codes: en-US, SSML Gender: FEMALE
+// Name: en-US-Chirp3-HD-Orus, Language Codes: en-US, SSML Gender: MALE
+// Name: en-US-Chirp3-HD-Puck, Language Codes: en-US, SSML Gender: MALE
+// Name: en-US-Chirp3-HD-Zephyr, Language Codes: en-US, SSML Gender: FEMALE
+
 const request = {
-  input: { text: sp },
-  voice: { languageCode: 'en-US', name: 'en-US-Chirp-HD-D' }, // Use a WaveNet voice
+  input: { ssml: sp },
+  voice: { languageCode: 'en-US', name: 'en-US-News-K' }, // Use a WaveNet voice
   audioConfig: { audioEncoding: 'MP3' },
 };
 

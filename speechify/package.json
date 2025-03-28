@@ -1,0 +1,10 @@
+{
+  "type": "module",
+  "dependencies": {
+    "@speechify/api-sdk": "^2.4.1",
+    "express": "^4.21.2",
+    "expressjs": "^1.0.1",
+    "serve": "^14.2.4",
+    "web-streams-node": "^0.4.0"
+  }
+}
