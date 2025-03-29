@@ -6,8 +6,11 @@ import { fileURLToPath } from "url";
 import { Readable } from "stream"; // Native Node.js module
 import express from "express";
 import dotenv from "dotenv"; // Import dotenv
+import ffmpeg from "fluent-ffmpeg"; // Import ffmpeg
 
-dotenv.config(); // Load environment variables from .env file
+dotenv.config();
+
+ffmpeg.setFfmpegPath(process.env.FFMPEG_PATH);
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -27,7 +30,7 @@ async function getMeditations() {
     }
 }
 
-async function generateAudio(title) {
+async function generateAudio(title, ambiance) {
     try {
         const meditations = await getMeditations();
         if (!meditations || meditations.length === 0) {
@@ -40,10 +43,10 @@ async function generateAudio(title) {
         }
 
         const { ssml: inputSSML } = meditation;
-        const voiceId = "kristy";
+        const voiceId = "natalie";
         const audioFormat = "mp3";
 
-        console.log(`Generating audio for meditation: ${title}`);
+        console.log(`${inputSSML}`);
 
         const responseStream = await speechify.audioStream({
             input: inputSSML,
@@ -55,18 +58,48 @@ async function generateAudio(title) {
         const outputFileName = `${title.replace(/[^a-z0-9]/gi, "_").toLowerCase()}.mp3`;
         const writeStream = createWriteStream(outputFileName);
 
-        return new Promise((resolve, reject) => {
+        await new Promise((resolve, reject) => {
             nodeStream.pipe(writeStream);
 
             nodeStream.on("end", () => {
                 console.log(`Audio file saved successfully as ${outputFileName}.`);
-                resolve(outputFileName);
+                resolve();
             });
 
             nodeStream.on("error", (error) => {
                 console.error("Error streaming audio:", error);
                 reject(error);
             });
+        });
+
+        // Mix with ambiance
+        const ambianceFilePath = path.join(__dirname, "ambiances", `${ambiance}.mp3`);
+        const mixedOutputFileName = `${title.replace(/[^a-z0-9]/gi, "_").toLowerCase()}_with_${ambiance}.mp3`;
+
+        return new Promise((resolve, reject) => {
+            ffmpeg()
+                .input(outputFileName)
+                .input(ambianceFilePath)
+                .inputOptions("-stream_loop -1") // Loop the ambiance sound indefinitely
+                .complexFilter([
+                    "[0:a]volume=1.8[a0]", // Increase speech volume slightly
+                    "[1:a]asetrate=48000,aresample=48000,volume=0.15[a1]", // Use higher sample rate for ambiance and increase volume slightly
+                    "[a0][a1]amix=inputs=2:duration=first:dropout_transition=2[a]" // Match ambiance duration to speech
+                ])
+                .outputOptions([
+                    "-map [a]",
+                    "-ar 48000", // Set output sample rate to 48 kHz for higher quality
+                    "-b:a 192k" // Set audio bitrate to 192 kbps for better quality
+                ])
+                .save(mixedOutputFileName)
+                .on("end", () => {
+                    console.log(`Mixed audio file saved successfully as ${mixedOutputFileName}.`);
+                    resolve(mixedOutputFileName);
+                })
+                .on("error", (error) => {
+                    console.error("Error mixing audio:", error);
+                    reject(error);
+                });
         });
     } catch (error) {
         console.error("Error generating audio:", error);
@@ -86,11 +119,53 @@ app.post("/generate-audio", async (req, res) => {
 
     try {
         console.log(`Received request to generate audio for title: ${title} with ambiance: ${ambiance}`);
-        const outputFileName = await generateAudio(title); // Wait for the stream to finish
+        const outputFileName = await generateAudio(title, ambiance); // Wait for the stream to finish
         res.status(200).json({ message: "Audio generated successfully.", file: outputFileName });
     } catch (error) {
         console.error("Error in /generate-audio endpoint:", error);
         res.status(500).json({ error: "Internal server error." });
+    }
+});
+
+
+async function listVoices() {
+    try {
+        console.log("Fetching available voices from Speechify API...");
+        const voices = await speechify.voicesList();
+        console.log("Available voices:", voices);
+        return voices;
+    } catch (error) {
+        console.error("Error fetching voices from Speechify API:", error);
+        throw error;
+    }
+}
+
+app.get("/list-voices", async (req, res) => {
+    try {
+        const voices = await listVoices();
+        const categorizedVoices = {};
+
+        voices
+            .filter((voice) => 
+                voice.models && 
+                voice.models.some((model) => model.languages.some((lang) => lang.locale === "en-US")) && 
+                voice.tags.length > 0 // Check for en-US in languages and non-empty tags
+            )
+            .forEach((voice) => {
+                const genderKey = voice.gender || "unknown"; // Use "unknown" if gender is undefined
+                if (!categorizedVoices[genderKey]) {
+                    categorizedVoices[genderKey] = [];
+                }
+                categorizedVoices[genderKey].push({
+                    id: voice.id,
+                    displayName: voice.displayName,
+                    tags: voice.tags,
+                });
+            });
+
+        res.status(200).json({ categorizedVoices });
+    } catch (error) {
+        res.status(500).json({ error: "Failed to fetch voices." });
     }
 });
 

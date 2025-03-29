@@ -1,7 +1,7 @@
 import ffmpeg from "fluent-ffmpeg";
 import path from "path";
 import fs from "fs";
- 
+
 
 const speechFile = './speech.mp3';
 const noiseFile = './noise.wav';
