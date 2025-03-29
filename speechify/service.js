@@ -7,6 +7,7 @@ import { Readable } from "stream"; // Native Node.js module
 import express from "express";
 import dotenv from "dotenv"; // Import dotenv
 import ffmpeg from "fluent-ffmpeg"; // Import ffmpeg
+import fs from "fs";
 
 dotenv.config();
 
@@ -186,6 +187,24 @@ app.get("/meditation-titles", async (req, res) => {
         res.status(500).json({ error: "Failed to fetch meditation titles." });
     }
 });
+
+const AMBIANCES_FOLDER = path.join(__dirname, 'ambiances');
+
+app.get('/ambiances', (req, res) => {
+    fs.readdir(AMBIANCES_FOLDER, (err, files) => {
+      if (err) {
+        console.error('Error reading ambiances folder:', err);
+        return res.status(500).json({ error: 'Could not read ambiances folder' });
+      }
+  
+      const mp3Names = files
+        .filter(file => path.extname(file).toLowerCase() === '.mp3')
+        .map(file => path.basename(file, '.mp3'));
+  
+      res.json(mp3Names);
+    });
+});
+
 
 const PORT = 3000;
 app.listen(PORT, () => {

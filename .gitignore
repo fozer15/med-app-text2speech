@@ -47,3 +47,71 @@ Desktop.ini
 
 # Ignore service account JSON key file
 text-to-speech-454804-2f72607dd36e.json
+
+# React Native specific
+# React Native Packager
+.expo/
+.expo-shared/
+*.expo
+*.expo-shared
+.expo-settings.json
+
+# Metro bundler cache
+metro-cache/
+
+# Android/IntelliJ
+*.iml
+.gradle/
+local.properties
+.idea/
+*.apk
+*.keystore
+
+
+*.pbxuser
+!default.pbxuser
+*.mode1v3
+*.mode2v3
+*.perspectivev3
+xcuserdata/
+*.xccheckout
+*.xcuserstate
+*.xcworkspace
+DerivedData/
+*.hmap
+*.ipa
+
+# Fastlane
+fastlane/report.xml
+fastlane/Preview.html
+fastlane/screenshots
+fastlane/test_output
+*.jks
+
+
+# Buck
+buck-out/
+\.buckconfig.local
+\.buckconfig.macros
+buck-out/
+\.buckconfig.local
+\.buckconfig.macros
+
+# Miscellaneous
+*.swp
+*.lock
+*.lockfile
+*.bak
+*.tmp
+*.temp
+*.orig
+*.patch
+*.rej
+*.sublime-workspace
+*.sublime-project
+*.log
+*.log.*
+
+# Build artifacts
+build/
+dist/
