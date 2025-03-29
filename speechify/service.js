@@ -30,7 +30,19 @@ async function getMeditations() {
     }
 }
 
-async function generateAudio(title, ambiance) {
+async function listVoices() {
+    try {
+        console.log("Fetching available voices from Speechify API...");
+        const voices = await speechify.voicesList();
+        console.log("Available voices:", voices);
+        return voices;
+    } catch (error) {
+        console.error("Error fetching voices from Speechify API:", error);
+        throw error;
+    }
+}
+
+async function generateAudio(title, ambiance, voiceId) {
     try {
         const meditations = await getMeditations();
         if (!meditations || meditations.length === 0) {
@@ -43,14 +55,13 @@ async function generateAudio(title, ambiance) {
         }
 
         const { ssml: inputSSML } = meditation;
-        const voiceId = "natalie";
         const audioFormat = "mp3";
 
         console.log(`${inputSSML}`);
 
         const responseStream = await speechify.audioStream({
             input: inputSSML,
-            voiceId,
+            voiceId, // Use the provided voiceId
             audioFormat,
         });
 
@@ -111,34 +122,30 @@ const app = express();
 app.use(express.json());
 
 app.post("/generate-audio", async (req, res) => {
-    const { title, ambiance } = req.body;
+    const { title, ambiance, voiceId } = req.body;
 
-    if (!title || !ambiance) {
-        return res.status(400).json({ error: "Title and ambiance are required." });
+    if (!title || !ambiance || !voiceId) {
+        return res.status(400).json({ error: "Title, ambiance, and voiceId are required." });
     }
 
     try {
-        console.log(`Received request to generate audio for title: ${title} with ambiance: ${ambiance}`);
-        const outputFileName = await generateAudio(title, ambiance); // Wait for the stream to finish
-        res.status(200).json({ message: "Audio generated successfully.", file: outputFileName });
+        console.log(`Received request to generate audio for title: ${title}, ambiance: ${ambiance}, voiceId: ${voiceId}`);
+        const outputFileName = await generateAudio(title, ambiance, voiceId); // Pass voiceId to generateAudio
+        const filePath = path.join(__dirname, outputFileName);
+        res.setHeader("Content-Type", "audio/mpeg"); // Set the appropriate content type for MP3
+        res.sendFile(filePath, (err) => {
+            if (err) {
+                console.error("Error sending file:", err);
+                res.status(500).json({ error: "Failed to send the audio file." });
+            } else {
+                console.log(`Audio file sent successfully: ${filePath}`);
+            }
+        });
     } catch (error) {
         console.error("Error in /generate-audio endpoint:", error);
         res.status(500).json({ error: "Internal server error." });
     }
 });
-
-
-async function listVoices() {
-    try {
-        console.log("Fetching available voices from Speechify API...");
-        const voices = await speechify.voicesList();
-        console.log("Available voices:", voices);
-        return voices;
-    } catch (error) {
-        console.error("Error fetching voices from Speechify API:", error);
-        throw error;
-    }
-}
 
 app.get("/list-voices", async (req, res) => {
     try {
@@ -166,6 +173,17 @@ app.get("/list-voices", async (req, res) => {
         res.status(200).json({ categorizedVoices });
     } catch (error) {
         res.status(500).json({ error: "Failed to fetch voices." });
+    }
+});
+
+app.get("/meditation-titles", async (req, res) => {
+    try {
+        const meditations = await getMeditations();
+        const titles = meditations.map((meditation) => meditation.title); // Extract titles
+        res.status(200).json({ titles });
+    } catch (error) {
+        console.error("Error fetching meditation titles:", error);
+        res.status(500).json({ error: "Failed to fetch meditation titles." });
     }
 });
 
