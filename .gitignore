@@ -45,6 +45,8 @@ Desktop.ini
 *.njsproj
 *.sln
 
+med-app-b4426-firebase-adminsdk-fbsvc-495b75defd.json
+
 # Ignore service account JSON key file
 text-to-speech-454804-2f72607dd36e.json
 
