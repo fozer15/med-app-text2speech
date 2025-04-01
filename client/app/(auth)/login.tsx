@@ -1,8 +1,9 @@
 import { useState } from 'react';
 import { useRouter } from 'expo-router';
 import { StyleSheet, TextInput, TouchableOpacity, Alert, Image } from 'react-native';
-import { getAuth, signInWithEmailAndPassword } from 'firebase/auth';
-
+import { signInWithEmailAndPassword } from 'firebase/auth';
+import { auth } from '../firebaseConfig'; // Import Firebase app
+import AsyncStorage from '@react-native-async-storage/async-storage';
 import { ThemedView } from '@/components/ThemedView';
 import { ThemedText } from '@/components/ThemedText';
 
@@ -10,12 +11,17 @@ export default function LoginScreen() {
   const [username, setUsername] = useState('');
   const [password, setPassword] = useState('');
   const router = useRouter();
-  const auth = getAuth();
 
   const handleLogin = async () => {
     try {
       await signInWithEmailAndPassword(auth, username, password);
-      router.replace('/profile');
+      const token = await auth.currentUser?.getIdToken();
+      if (token) {
+        await AsyncStorage.setItem('userToken', token);
+      } else {
+        console.error('Failed to retrieve user token');
+      }
+      router.replace('/(tabs)');
     } catch (error: any) {
       Alert.alert('Login Failed', error.message);
     }
