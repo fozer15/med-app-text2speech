@@ -7,20 +7,17 @@ import { auth } from './firebaseConfig';
 export default function Index() {
   const router = useRouter();
   const [checkingAuth, setCheckingAuth] = useState(true);
-  const [userFound, setUserFound] = useState(false);
-  
+
   useEffect(() => {
     onAuthStateChanged(auth, (user) => {
       if (user) {
-        setUserFound(true);
         router.replace('/(tabs)');
       } else {
-        setUserFound(false);
         setCheckingAuth(false);
         router.replace('/login');
       }
     });
-  
+
   }, []);
 
   if (checkingAuth) {
