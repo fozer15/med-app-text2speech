@@ -20,7 +20,7 @@ export default function Index() {
         } else {
           await AsyncStorage.removeItem('userToken');
           setCheckingAuth(false);
-          
+          router.replace('/login');
         }
       } catch (error) {
         console.error('Error in onIdTokenChanged:', error);
