@@ -26,18 +26,7 @@ const auth = initializeAuth(app, {
   persistence: getReactNativePersistence(AsyncStorage),
 });
 
-onIdTokenChanged(auth, async (user: User | null) => {
-  try {
-    if (user) {
-      const token = await user?.getIdToken();
-      await AsyncStorage.setItem('userToken', token!);
-    } else {
-      await AsyncStorage.removeItem('userToken');
-    }
-  } catch (error) {
-    console.error('Error in onIdTokenChanged:', error);
-  }
-});
+
 
 export { app, auth };
 
