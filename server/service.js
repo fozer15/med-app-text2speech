@@ -117,7 +117,7 @@ async function generateAudio(title, ambiance, voiceId) {
                 });
         });
     } catch (error) {
-        console.error("Error generating audio:", error);
+        console.error("Error generating audio:", error.message);
         throw error;
     }
 }
@@ -128,6 +128,7 @@ app.use(bodyParser.urlencoded({ extended: true })); // Add body-parser middlewar
 app.use(bodyParser.json()); // Add body-parser middleware for JSON data
 
 app.post("/generate-audio", authMiddleware, async (req, res) => {
+
     const { title, ambiance, voiceId } = req.body;
 
     if (!title || !ambiance || !voiceId) {
@@ -138,7 +139,9 @@ app.post("/generate-audio", authMiddleware, async (req, res) => {
         console.log(`Received request to generate audio for title: ${title}, ambiance: ${ambiance}, voiceId: ${voiceId}`);
         const outputFileName = await generateAudio(title, ambiance, voiceId); // Pass voiceId to generateAudio
         const filePath = path.join(__dirname, outputFileName);
+
         res.setHeader("Content-Type", "audio/mpeg"); // Set the appropriate content type for MP3
+        res.setHeader("Content-Disposition", `attachment; filename="${outputFileName}"`); // Suggest a filename
         res.sendFile(filePath, (err) => {
             if (err) {
                 console.error("Error sending file:", err);
@@ -210,8 +213,6 @@ app.get('/ambiances', authMiddleware, (req, res) => {
     });
 });
 
-
-const PORT = 3000;
-app.listen(PORT, () => {
-    console.log(`Server is running on http://localhost:${PORT}`);
-});
+app.listen(3000, '0.0.0.0', () => {
+    console.log('✅ Server is running on all interfaces at port 3000');
+  });

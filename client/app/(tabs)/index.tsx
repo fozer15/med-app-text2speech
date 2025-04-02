@@ -21,7 +21,7 @@ export default function Home() {
           return;
         }
 
-        const response = await fetch('http://localhost:3000/meditation-titles', {
+        const response = await fetch('http://192.168.2.37:3000/meditation-titles', {
           headers: {
             Authorization: `Bearer ${token}`,
           },
