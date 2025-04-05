@@ -38,7 +38,6 @@ async function listVoices() {
     try {
         console.log("Fetching available voices from Speechify API...");
         const voices = await speechify.voicesList();
-        console.log("Available voices:", voices);
         return voices;
     } catch (error) {
         console.error("Error fetching voices from Speechify API:", error);
@@ -60,8 +59,6 @@ async function generateAudio(title, ambiance, voiceId) {
 
         const { ssml: inputSSML } = meditation;
         const audioFormat = "mp3";
-
-        console.log(`${inputSSML}`);
 
         const responseStream = await speechify.audioStream({
             input: inputSSML,
@@ -98,7 +95,7 @@ async function generateAudio(title, ambiance, voiceId) {
                 .inputOptions("-stream_loop -1") // Loop the ambiance sound indefinitely
                 .complexFilter([
                     "[0:a]volume=1.8[a0]", // Increase speech volume slightly
-                    "[1:a]asetrate=48000,aresample=48000,volume=0.15[a1]", // Use higher sample rate for ambiance and increase volume slightly
+                    "[1:a]asetrate=48000,aresample=48000,volume=0.32[a1]", // Use higher sample rate for ambiance and increase volume slightly
                     "[a0][a1]amix=inputs=2:duration=first:dropout_transition=2[a]" // Match ambiance duration to speech
                 ])
                 .outputOptions([
@@ -136,7 +133,6 @@ app.post("/generate-audio", authMiddleware, async (req, res) => {
     }
 
     try {
-        console.log(`Received request to generate audio for title: ${title}, ambiance: ${ambiance}, voiceId: ${voiceId}`);
         const outputFileName = await generateAudio(title, ambiance, voiceId); // Pass voiceId to generateAudio
         const filePath = path.join(__dirname, outputFileName);
 
