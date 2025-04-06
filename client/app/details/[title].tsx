@@ -1,4 +1,5 @@
 import { useLocalSearchParams } from 'expo-router';
+import { useRouter } from 'expo-router'; // Import useRouter for navigation
 import { Button, StyleSheet, Text, View, TextInput, ActivityIndicator, FlatList, Dimensions, Image, TouchableOpacity, Alert, ImageBackground, ScrollView } from 'react-native'; // Import ScrollView
 import * as FileSystem from 'expo-file-system';
 import AsyncStorage from '@react-native-async-storage/async-storage';
@@ -9,10 +10,12 @@ import images from '../../utils/images';
 import { MaterialIcons } from '@expo/vector-icons'; // Import icons from Expo
 import { counterEvent } from 'react-native/Libraries/Performance/Systrace';
 import { LinearGradient } from 'expo-linear-gradient'; // Import LinearGradient
+import fetchWithAuth from '../../utils/fetchWithAuth';
 
 const { width: screenWidth, height: screenHeight } = Dimensions.get('window');
 
 export default function Details() {
+  const router = useRouter(); // Initialize router for navigation
   const { title: initialTitle } = useLocalSearchParams();
   const [title, setTitle] = useState(initialTitle || '');
   const [ambiance, setAmbiance] = useState('');
@@ -30,18 +33,15 @@ export default function Details() {
   );
   const [isPageLoading, setIsPageLoading] = useState(true); // New state for page loading
   const [currentlyPlaying, setCurrentlyPlaying] = useState<string | null>(null); // Track the currently playing file
-  const ambianceCarouselRef = useRef(null); // Ref for ambiance carousel
-  const voiceCarouselRef = useRef(null); // Ref for voice carousel
+  const ambianceCarouselRef = useRef<typeof Carousel<{ label: string; value: string; image?: any }> | null>(null); // Ref for ambiance carousel
+  const voiceCarouselRef = useRef<typeof Carousel<{ label: string; value: string }> | null>(null); // Ref for voice carousel
   const [isSwiping, setIsSwiping] = useState(false); // Track swiping status
   const [backgroundImage, setBackgroundImage] = useState(images[ambiance]); // Track the current background image
   const [playbackStatus, setPlaybackStatus] = useState<{ positionMillis: number; durationMillis: number } | null>(null); // Track playback status
 
   async function fetchAmbiances() {
     try {
-      const token = await AsyncStorage.getItem('userToken');
-      const response = await fetch('http://192.168.2.37:3000/ambiances', {
-        headers: { Authorization: `Bearer ${token}` },
-      });
+      const response = await fetchWithAuth('http://192.168.2.37:3000/ambiances', {}, router);
       const data = await response.json();
       setAmbiances(data);
     } catch (error) {
@@ -51,12 +51,8 @@ export default function Details() {
 
   async function fetchVoices() {
     try {
-      const token = await AsyncStorage.getItem('userToken');
-      const response = await fetch('http://192.168.2.37:3000/list-voices', {
-        headers: { Authorization: `Bearer ${token}` },
-      });
+      const response = await fetchWithAuth('http://192.168.2.37:3000/list-voices', {}, router);
       const data = await response.json();
-
       const voicesList = [
         ...data.categorizedVoices.male,
         ...data.categorizedVoices.female,
@@ -70,20 +66,14 @@ export default function Details() {
   async function fetchAudio() {
     try {
       setIsLoading(true); // Start loading
-      const fileUri = `${FileSystem.documentDirectory}${title}_${ambiance}_${voiceId}.mp3`; // Updated fileUri
-      const token = await AsyncStorage.getItem('userToken');
-      if (title !== '' && ambiance !== '' && voiceId !== '') {
-        var response = await fetch('http://192.168.2.37:3000/generate-audio', {
-          method: 'POST',
-          headers: {
-            'Content-Type': 'application/json',
-            Authorization: `Bearer ${token}`,
-          },
-          body: JSON.stringify({ title, ambiance, voiceId }),
-        });
-      } else {
-        return Alert.alert('Error', 'Could not generate audio. Please select ambiance and voice.');
-      }
+      const fileUri = `${FileSystem.documentDirectory}${title}_${ambiance}_${voiceId}.mp3`;
+      const body = JSON.stringify({ title, ambiance, voiceId });
+
+      const response = await fetchWithAuth(
+        'http://192.168.2.37:3000/generate-audio',
+        { method: 'POST', headers: { 'Content-Type': 'application/json' }, body },
+        router
+      );
 
       const blob = await response.blob();
 
@@ -95,10 +85,10 @@ export default function Details() {
           await FileSystem.writeAsStringAsync(fileUri, base64Data, {
             encoding: FileSystem.EncodingType.Base64,
           });
+          await fetchRelatedMeditations(); // refresh the states after writing the file
         }
       };
-      reader.readAsDataURL(blob);
-      await fetchRelatedMeditations();
+      reader.readAsDataURL(blob); //starts reading the blob asyncly
     } catch (error) {
       console.error('Error fetching audio:', error);
     } finally {
@@ -169,22 +159,13 @@ export default function Details() {
     }
   }
 
-  async function deleteInvalidFiles() {
+  async function deleteFile(fileUri: string) {
     try {
-      const directoryUri = FileSystem.documentDirectory || '';
-      const files = await FileSystem.readDirectoryAsync(directoryUri);
-
-      const validPattern = new RegExp(`^${title}_.+_.+\\.mp3$`); // Match files with the format {title}_{ambiance}_{speaker}.mp3
-
-      for (const file of files) {
-        if (!validPattern.test(file)) {
-          await FileSystem.deleteAsync(`${directoryUri}${file}`);
-          console.log(`Deleted invalid file: ${file}`);
-        }
-      }
-      await fetchRelatedMeditations();
+      await FileSystem.deleteAsync(fileUri);
+      console.log(`Deleted file: ${fileUri}`);
+      await fetchRelatedMeditations(); // Refresh the playlist
     } catch (error) {
-      console.error('Error deleting invalid files:', error);
+      console.error('Error deleting file:', error);
     }
   }
 
@@ -196,14 +177,6 @@ export default function Details() {
     seekToPosition(newPositionMillis);
   };
 
-  useEffect(() => {
-    async function initialize() {
-      await deleteInvalidFiles(); // Delete invalid files on mount
-      await fetchDetails(); // Fetch details after cleaning up files
-    }
-
-    initialize();
-  }, [title]);
 
   useEffect(() => {
     async function fetchDetails() {
@@ -265,7 +238,7 @@ export default function Details() {
     return `${minutes}:${seconds < 10 ? '0' : ''}${seconds}`;
   };
 
-  const renderCarouselItem = ({ item }) => (
+  const renderCarouselItem = ({ item }: { item: { label: string; value: string; image: any } }) => (
     <View style={styles.carouselItem}>
       <Image source={item.image} style={styles.carouselImage} />
       <Text style={styles.carouselText}>
@@ -277,7 +250,6 @@ export default function Details() {
   const renderCreatedMeditationItem = ({ item }: { item: string }) => {
     const fileUri = `${FileSystem.documentDirectory}${item}`;
     const isPlaying = currentlyPlaying === fileUri;
-   
     const progress =
       isPlaying && playbackStatus
         ? playbackStatus.positionMillis / playbackStatus.durationMillis
@@ -287,7 +259,7 @@ export default function Details() {
       <View style={styles.playlistItem} key={item}>
         <View style={styles.songInfo}>
           <Text style={styles.playlistText}>
-            {item?.split('_')[1].charAt(0).toUpperCase() + item?.split('_')[1].slice(1).toLowerCase() + " &" + " " + item?.split('_')[2].charAt(0).toUpperCase() + item?.split('_')[2].slice(1).toLowerCase().replace(".mp3","")}
+            {item?.split('_')[1].charAt(0).toUpperCase() + item?.split('_')[1].slice(1).toLowerCase() + " &" + " " + item?.split('_')[2].charAt(0).toUpperCase() + item?.split('_')[2].slice(1).toLowerCase().replace(".mp3", "")}
           </Text>
           <Text style={styles.timerText}>
             {isPlaying && playbackStatus
@@ -304,11 +276,16 @@ export default function Details() {
         >
           <View style={[styles.progressBar, { width: `${progress * 100}%` }]} />
         </TouchableOpacity>
-        <Button
-          title={isPlaying ? '||' : '▶'}
-          onPress={() => togglePlayPause(fileUri)}
-          color={isPlaying ? '#1DB954' : '#fff'}
-        />
+        <View style={styles.actionButtons}>
+          <Button
+            title={isPlaying ? '||' : '▶'}
+            onPress={() => togglePlayPause(fileUri)}
+            color={isPlaying ? '#1DB954' : '#fff'}
+          />
+          <TouchableOpacity onPress={() => deleteFile(fileUri)}>
+            <MaterialIcons name="delete" size={24} color="#FF6347" style={styles.deleteIcon} />
+          </TouchableOpacity>
+        </View>
       </View>
     );
   };
@@ -360,9 +337,11 @@ export default function Details() {
         style={styles.fullScreenGradient} // Updated style to cover the whole screen
       >
         <ScrollView contentContainerStyle={styles.scrollContainer}>
-          <Text style={styles.title}>{title}</Text>
+          <Text style={[styles.title, {marginBottom:"7%"}]}>{title}</Text>
           <View style={styles.pickerGroup}>
-            <Text style={styles.label}>Choose Ambiance</Text>
+            <View style={styles.shadowedTitleContainer}>
+              <Text style={styles.shadowedTitle}>Choose Your Ambiance</Text>
+            </View>
             <View style={styles.carouselContainer}>
               <MaterialIcons
                 name="chevron-left"
@@ -389,13 +368,15 @@ export default function Details() {
             </View>
           </View>
 
-          <View style={[styles.pickerGroup, { marginTop: 10, height: '12%' }]}>
-            <Text style={styles.label}>Choose Your Meditator</Text>
+          <View style={[styles.pickerGroup, { marginTop: '5%', height: '12%' }]}>
+            <View style={styles.shadowedTitleContainer}>
+              <Text style={styles.shadowedTitle}>Choose Your Meditator</Text>
+            </View>
             <View style={styles.carouselContainer}>
               <MaterialIcons
                 name="chevron-left"
                 size={37}
-                style={[styles.carouselIcon, styles.carouselIconLeft, { top: '25%' }]}
+                style={[styles.carouselIcon, styles.carouselIconLeft, { top: '25%'}]}
                 onPress={() => handleVoiceScroll('left')}
               />
               <Carousel
@@ -461,11 +442,12 @@ const styles = StyleSheet.create({
   },
   title: {
     color: '#fff',
-    fontSize: 23,
+    fontSize: 22,
     fontWeight: 'bold',
     marginBottom: 20,
     textAlign: 'center',
     alignSelf: 'center',
+    padding: 10,
   },
   input: {
     width: '100%',
@@ -548,8 +530,11 @@ const styles = StyleSheet.create({
     flexDirection: 'column',
     justifyContent: 'center',
     alignItems: 'center',
-    padding: 10,
-    borderRadius: 5,
+    paddingTop:15,
+    paddingBottom:5,
+    paddingLeft:20,
+    paddingRight:20,
+    borderRadius: 20,
     width: '90%',
     alignSelf: 'center',
     marginBottom: 15,
@@ -592,6 +577,7 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center', // Center the carousel vertically
     width: '100%',
+    marginTop: 5,
     padding: 0,
     position: 'relative', // Allow absolute positioning for icons
   },
@@ -616,7 +602,7 @@ const styles = StyleSheet.create({
     paddingVertical: 12,
     paddingHorizontal: 20,
     borderRadius: 25,
-    marginTop: 10,
+    marginTop: "7%",
     width: '70%', // Adjusted width for better visibility
     alignSelf: 'center', // Center the button
   },
@@ -647,6 +633,35 @@ const styles = StyleSheet.create({
   scrollContainer: {
     flexGrow: 1,
     paddingTop: 20, // Add padding to the top of the page
-    paddingBottom: 100, // Add padding to the bottom of the page
+    paddingBottom:60, // Add padding to the bottom of the page
+  },
+  shadowedTitleContainer: {
+    backgroundColor: 'rgba(0, 0, 0, 0.1)', // Semi-transparent black background
+    borderRadius: 50, // Circular shape
+    paddingVertical: 10,
+    paddingHorizontal: 20,
+    alignSelf: 'center',
+    marginBottom: 10,
+    shadowColor: '#000', // Shadow color
+    shadowOffset: { width: 0, height: 2 }, // Shadow offset
+    shadowOpacity: 0.3, // Shadow opacity
+    shadowRadius: 4, // Shadow radius
+    elevation: 5, // Shadow for Android
+  },
+  shadowedTitle: {
+    color: '#fff', // White text color
+    fontSize: 16,
+    fontWeight: 'bold',
+    textAlign: 'center',
+  },
+  actionButtons: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    width: '100%',
+    marginTop: 10,
+  },
+  deleteIcon: {
+    marginLeft: 10,
   },
 });
