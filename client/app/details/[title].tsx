@@ -169,14 +169,13 @@ export default function Details() {
     }
   }
 
-  const handleProgressBarPress = (event: any, durationMillis: number) => {
-    if (!durationMillis) return;
+  // const handleProgressBarPress = (event: any, durationMillis: number) => {
+  //   if (!durationMillis) return;
 
-    const { locationX, width } = event.nativeEvent;
-    const newPositionMillis = (locationX / width) * durationMillis;
-    seekToPosition(newPositionMillis);
-  };
-
+  //   const { locationX, width } = event.nativeEvent;
+  //   const newPositionMillis = (locationX / width) * durationMillis;
+  //   seekToPosition(newPositionMillis);
+  // };
 
   useEffect(() => {
     async function fetchDetails() {
@@ -270,18 +269,20 @@ export default function Details() {
         <TouchableOpacity
           style={styles.progressBarContainer}
           activeOpacity={1}
-          onPress={(event) =>
-            handleProgressBarPress(event, playbackStatus?.durationMillis || 0)
-          }
         >
           <View style={[styles.progressBar, { width: `${progress * 100}%` }]} />
         </TouchableOpacity>
         <View style={styles.actionButtons}>
-          <Button
-            title={isPlaying ? '||' : '▶'}
-            onPress={() => togglePlayPause(fileUri)}
-            color={isPlaying ? '#1DB954' : '#fff'}
-          />
+          <TouchableOpacity onPress={() => togglePlayPause(fileUri)}>
+            <Image
+              source={
+                isPlaying
+                  ? images['pause'] // Use custom pause icon
+                  : images['play'] // Use custom play icon
+              }
+              style={{ width: 26, height: 26, tintColor: '#fff' }} // Set color to white
+            />
+          </TouchableOpacity>
           <TouchableOpacity onPress={() => deleteFile(fileUri)}>
             <MaterialIcons name="delete" size={24} color="#FF6347" style={styles.deleteIcon} />
           </TouchableOpacity>
@@ -531,7 +532,7 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     alignItems: 'center',
     paddingTop:15,
-    paddingBottom:5,
+    paddingBottom:12,
     paddingLeft:20,
     paddingRight:20,
     borderRadius: 20,
@@ -660,6 +661,7 @@ const styles = StyleSheet.create({
     justifyContent: 'space-between',
     width: '100%',
     marginTop: 10,
+    paddingHorizontal:2,
   },
   deleteIcon: {
     marginLeft: 10,
