@@ -2,6 +2,7 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 import { auth } from '../app/firebaseConfig'; // Import the Firebase auth object
 import { getIdToken } from 'firebase/auth';
 
+//max retry count logic
 export default async function fetchWithAuth(url: string, options: RequestInit = {}, router: any) {
   const makeRequest = async (token: string) => {
     const headers = {
