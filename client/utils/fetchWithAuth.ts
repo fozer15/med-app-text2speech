@@ -15,18 +15,15 @@ export default async function fetchWithAuth(url: string, options: RequestInit = 
   try {
     let token = await AsyncStorage.getItem('userToken');
     let response = await makeRequest(token!);
-
     if (response.status === 401) {
-      if(!token) {
-        const currentUser = auth.currentUser;
-        if (currentUser) {
+      const currentUser = auth.currentUser;
+      if (currentUser && token) {
           token = await getIdToken(currentUser, true); 
           await AsyncStorage.setItem('userToken', token);
           response = await makeRequest(token);
-        } else {
+      } else {
           router.replace('/login'); 
           throw new Error('Unauthorized');
-        }
       }
     }
     return response;
