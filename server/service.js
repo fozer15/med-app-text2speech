@@ -23,6 +23,11 @@ const speechify = new Speechify({
     apiKey: process.env.SPEECHIFY_API_KEY, // Load API key from environment variables
 });
 
+const soundsFolder = path.join(__dirname, "sounds");
+if (!fs.existsSync(soundsFolder)) {
+    fs.mkdirSync(soundsFolder); // Ensure the sounds folder exists
+}
+
 async function getMeditations() {
     const filePath = path.join(__dirname, "ssml_meditations.json");
     try {
@@ -62,12 +67,12 @@ async function generateAudio(title, ambiance, voiceId) {
 
         const responseStream = await speechify.audioStream({
             input: inputSSML,
-            voiceId, // Use the provided voiceId
+            voiceId,
             audioFormat,
         });
 
         const nodeStream = Readable.fromWeb(responseStream);
-        const outputFileName = `${title.replace(/[^a-z0-9]/gi, "_").toLowerCase()}.mp3`;
+        const outputFileName = path.join(soundsFolder, `${title.replace(/[^a-z0-9]/gi, "_").toLowerCase()}.mp3`);
         const writeStream = createWriteStream(outputFileName);
 
         await new Promise((resolve, reject) => {
@@ -84,33 +89,47 @@ async function generateAudio(title, ambiance, voiceId) {
             });
         });
 
-        // Mix with ambiance
+        // Validate input files
         const ambianceFilePath = path.join(__dirname, "ambiances", `${ambiance}.mp3`);
-        const mixedOutputFileName = `${title.replace(/[^a-z0-9]/gi, "_").toLowerCase()}_with_${ambiance}.mp3`;
+        if (!fs.existsSync(outputFileName) || fs.statSync(outputFileName).size === 0) {
+            throw new Error(`Generated audio file is missing or empty: ${outputFileName}`);
+        }
+        if (!fs.existsSync(ambianceFilePath) || fs.statSync(ambianceFilePath).size === 0) {
+            throw new Error(`Ambiance file is missing or empty: ${ambianceFilePath}`);
+        }
+
+        const mixedOutputFileName = path.join(
+            soundsFolder,
+            `${title.replace(/[^a-z0-9]/gi, "_").toLowerCase()}_with_${ambiance}_by_${voiceId}.mp3`
+        );
 
         return new Promise((resolve, reject) => {
             ffmpeg()
                 .input(outputFileName)
                 .input(ambianceFilePath)
+                .on("start", (commandLine) => {
+                    console.log("FFmpeg command:", commandLine);
+                })
+                .on("error", (error) => {
+                    console.error("Error mixing audio:", error);
+                    reject(error);
+                })
                 .inputOptions("-stream_loop -1") // Loop the ambiance sound indefinitely
                 .complexFilter([
-                    "[0:a]volume=1.8[a0]", // Increase speech volume slightly
-                    "[1:a]asetrate=48000,aresample=48000,volume=0.32[a1]", // Use higher sample rate for ambiance and increase volume slightly
-                    "[a0][a1]amix=inputs=2:duration=first:dropout_transition=2[a]" // Match ambiance duration to speech
+                    "[0:a]atempo=0.92,volume=1.8[a0]", // Adjust tempo and volume
+                    "[1:a]volume=0.32[a1]", // Adjust ambiance volume
+                    "[a0][a1]amix=inputs=2:duration=first:dropout_transition=2[a]" // Mix audio streams
                 ])
                 .outputOptions([
                     "-map [a]",
-                    "-ar 48000", // Set output sample rate to 48 kHz for higher quality
-                    "-b:a 192k" // Set audio bitrate to 192 kbps for better quality
+                    "-ar 48000", // Set output sample rate to 48 kHz
+                    "-b:a 192k", // Set audio bitrate to 192 kbps
+                    "-ac 2" // Ensure stereo output
                 ])
                 .save(mixedOutputFileName)
                 .on("end", () => {
                     console.log(`Mixed audio file saved successfully as ${mixedOutputFileName}.`);
                     resolve(mixedOutputFileName);
-                })
-                .on("error", (error) => {
-                    console.error("Error mixing audio:", error);
-                    reject(error);
                 });
         });
     } catch (error) {
@@ -125,19 +144,20 @@ app.use(bodyParser.urlencoded({ extended: true })); // Add body-parser middlewar
 app.use(bodyParser.json()); // Add body-parser middleware for JSON data
 
 app.post("/generate-audio", authMiddleware, async (req, res) => {
-
     const { title, ambiance, voiceId } = req.body;
 
     if (!title || !ambiance || !voiceId) {
         return res.status(400).json({ error: "Title, ambiance, and voiceId are required." });
     }
 
-    try {
-        const outputFileName = await generateAudio(title, ambiance, voiceId); // Pass voiceId to generateAudio
-        const filePath = path.join(__dirname, outputFileName);
+    const outputFileName = path.join(
+        soundsFolder,
+        `${title.replace(/[^a-z0-9]/gi, "_").toLowerCase()}_with_${ambiance}_by_${voiceId}.mp3`
+    );
 
-        res.setHeader("Content-Type", "audio/mpeg"); // Set the appropriate content type for MP3
-        res.setHeader("Content-Disposition", `attachment; filename="${outputFileName}"`); // Suggest a filename
+    const serveFile = (filePath) => {
+        res.setHeader("Content-Type", "audio/mpeg");
+        res.setHeader("Content-Disposition", `attachment; filename="${path.basename(filePath)}"`);
         res.sendFile(filePath, (err) => {
             if (err) {
                 console.error("Error sending file:", err);
@@ -146,10 +166,45 @@ app.post("/generate-audio", authMiddleware, async (req, res) => {
                 console.log(`Audio file sent successfully: ${filePath}`);
             }
         });
+    };
+
+    try {
+        if (fs.existsSync(outputFileName)) {
+            console.log(`Audio file already exists: ${outputFileName}`);
+            return serveFile(outputFileName);
+        }
+
+        const generatedFileName = await generateAudio(title, ambiance, voiceId);
+        serveFile(generatedFileName);
     } catch (error) {
         console.error("Error in /generate-audio endpoint:", error);
         res.status(500).json({ error: "Internal server error." });
     }
+});
+
+app.post("/remove-file", authMiddleware, (req, res) => {
+    const { title, ambiance, voiceId } = req.body;
+
+    if (!title || !ambiance || !voiceId) {
+        return res.status(400).json({ error: "Title, ambiance, and voiceId are required." });
+    }
+
+    const fileName = `${title.replace(/[^a-z0-9]/gi, "_").toLowerCase()}_with_${ambiance}_by_${voiceId}.mp3`;
+    const filePath = path.join(soundsFolder, fileName);
+
+    fs.unlink(filePath, (err) => {
+      
+        if (err) {
+            if (err.code === "ENOENT") { //check if mp3 exists 
+                return res.status(404).json({ error: "File not found." });
+            }
+            console.error("Error deleting file:", err);
+            return res.status(500).json({ error: "Failed to delete the file." });
+        }
+
+        console.log(`File removed successfully: ${filePath}`);
+        res.status(200).json({ message: "File removed successfully." });
+    });
 });
 
 app.get("/list-voices", authMiddleware, async (req, res) => {

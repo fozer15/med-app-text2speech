@@ -1,6 +1,6 @@
 import { useLocalSearchParams } from 'expo-router';
 import { useRouter } from 'expo-router'; // Import useRouter for navigation
-import { Button, StyleSheet, Text, View, TextInput, ActivityIndicator, FlatList, Dimensions, Image, TouchableOpacity, Alert, ImageBackground, ScrollView } from 'react-native'; // Import ScrollView
+import { Button, StyleSheet, Text, View, TextInput, ActivityIndicator, FlatList, Dimensions, Image, TouchableOpacity, Alert, ImageBackground, ScrollView, Modal } from 'react-native'; // Import ScrollView and Modal
 import * as FileSystem from 'expo-file-system';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { useEffect, useState, useRef } from 'react'; // Import useRef
@@ -21,7 +21,7 @@ export default function Details() {
   const [ambiance, setAmbiance] = useState('');
   const [voiceId, setVoiceId] = useState('');
   const [ambiances, setAmbiances] = useState<string[]>([]);
-  const [voices, setVoices] = useState<{ id: string; displayName: string }[]>([]);
+  const [voices, setVoices] = useState<{ id: string; displayName: string; tags?: string[] }[]>([]);
   const [sound, setSound] = useState<Audio.Sound | null>(null);
   const [isLoading, setIsLoading] = useState(false);
   const [relatedMeditations, setRelatedMeditations] = useState<string[]>([]);
@@ -38,6 +38,9 @@ export default function Details() {
   const [isSwiping, setIsSwiping] = useState(false); // Track swiping status
   const [backgroundImage, setBackgroundImage] = useState(images[ambiance]); // Track the current background image
   const [playbackStatus, setPlaybackStatus] = useState<{ positionMillis: number; durationMillis: number } | null>(null); // Track playback status
+  const [isModalVisible, setIsModalVisible] = useState(false); // State for modal visibility
+  const [selectedVoiceTags, setSelectedVoiceTags] = useState<string[]>([]); // State for selected voice tags
+  const [isDeleting, setIsDeleting] = useState<string | null>(null); // Track the file being deleted
 
   async function fetchAmbiances() {
     try {
@@ -56,7 +59,12 @@ export default function Details() {
       const voicesList = [
         ...data.categorizedVoices.male,
         ...data.categorizedVoices.female,
-      ];
+      ].map((voice) => ({
+        ...voice,
+        tags: voice.tags
+          ?.filter((tag) => tag.startsWith('timbre:') || tag.startsWith('accent:'))
+          .map((tag) => tag.split(':')[1]), // Keep only the part after ":"
+      }));
       setVoices(voicesList);
     } catch (error) {
       console.error('Error fetching voices:', error);
@@ -101,8 +109,15 @@ export default function Details() {
       if (currentlyPlaying === fileUri) {
         // Pause the currently playing sound
         if (sound) {
-          await sound.pauseAsync();
-          setCurrentlyPlaying(null);
+          const status = await sound.getStatusAsync();
+          if (status.isLoaded) {
+            await sound.pauseAsync();
+            setPlaybackStatus({
+              positionMillis: status.positionMillis || 0,
+              durationMillis: status.durationMillis || 0,
+            }); // Save the current playback position
+          }
+          setCurrentlyPlaying(null); // Ensure currentlyPlaying is set to null
         }
       } else {
         // Play the selected sound
@@ -123,7 +138,12 @@ export default function Details() {
           }
         });
 
-        await newSound.playAsync();
+        // Resume from the last saved position if available
+        if (playbackStatus?.positionMillis) {
+          await newSound.playFromPositionAsync(playbackStatus.positionMillis);
+        } else {
+          await newSound.playAsync();
+        }
       }
     } catch (error) {
       console.error('Error toggling play/pause:', error);
@@ -161,21 +181,30 @@ export default function Details() {
 
   async function deleteFile(fileUri: string) {
     try {
-      await FileSystem.deleteAsync(fileUri);
+      setIsDeleting(fileUri); // Start loading for the specific file
+      // Extract parameters from fileUri
+      const fileName = fileUri.split('/').pop() || '';
+      const [fileTitle, fileAmbiance, fileVoiceIdWithExtension] = fileName.split('_');
+      const fileVoiceId = fileVoiceIdWithExtension.replace('.mp3', '');
+
+      const body = JSON.stringify({ title: fileTitle, ambiance: fileAmbiance, voiceId: fileVoiceId });
+
+      // Make a request to the /remove-file endpoint
+      await fetchWithAuth(
+        'http://192.168.2.37:3000/remove-file',
+        { method: 'POST', headers: { 'Content-Type': 'application/json' }, body },
+        router
+      );
+
+      await FileSystem.deleteAsync(fileUri); // Delete the file locally
       console.log(`Deleted file: ${fileUri}`);
       await fetchRelatedMeditations(); // Refresh the playlist
     } catch (error) {
       console.error('Error deleting file:', error);
+    } finally {
+      setIsDeleting(null); // Stop loading
     }
   }
-
-  // const handleProgressBarPress = (event: any, durationMillis: number) => {
-  //   if (!durationMillis) return;
-
-  //   const { locationX, width } = event.nativeEvent;
-  //   const newPositionMillis = (locationX / width) * durationMillis;
-  //   seekToPosition(newPositionMillis);
-  // };
 
   useEffect(() => {
     async function fetchDetails() {
@@ -246,6 +275,21 @@ export default function Details() {
     </View>
   );
 
+  const renderVoiceCarouselItem = ({ item }: { item: { label: string; value: string; tags: string[] } }) => (
+    <View style={[styles.carouselItem, { height: screenHeight * 0.07, justifyContent:'center', paddingBottom: 0, width:'70%'}]}>
+      <Text style={styles.carouselText}>{item.label}</Text>
+      <TouchableOpacity
+        style={styles.infoButton}
+        onPress={() => {
+          setSelectedVoiceTags(item.tags);
+          setIsModalVisible(true);
+        }}
+      >
+        <MaterialIcons name="info" size={23} color="#fff" />
+      </TouchableOpacity>
+    </View>
+  );
+
   const renderCreatedMeditationItem = ({ item }: { item: string }) => {
     const fileUri = `${FileSystem.documentDirectory}${item}`;
     const isPlaying = currentlyPlaying === fileUri;
@@ -283,24 +327,27 @@ export default function Details() {
               style={{ width: 26, height: 26, tintColor: '#fff' }} // Set color to white
             />
           </TouchableOpacity>
-          <TouchableOpacity onPress={() => deleteFile(fileUri)}>
-            <MaterialIcons name="delete" size={24} color="#FF6347" style={styles.deleteIcon} />
+          <TouchableOpacity onPress={() => deleteFile(fileUri)} disabled={isDeleting === fileUri}>
+            {isDeleting === fileUri ? (
+              <ActivityIndicator size="small" color="#FF6347" />
+            ) : (
+              <MaterialIcons name="delete" size={24} color="#FF6347" style={styles.deleteIcon} />
+            )}
           </TouchableOpacity>
         </View>
       </View>
-    );
-  };
+    );};
 
   const handleAmbianceScroll = (direction: 'left' | 'right') => {
-    if (ambianceCarouselRef.current) {
-      setIsSwiping(true); // Start swiping
-      if (direction === 'left') {
-        ambianceCarouselRef.current.scrollTo({ count: -1, animated: true });
-      } else {
-        ambianceCarouselRef.current.scrollTo({ count: 1, animated: true });
+      if (ambianceCarouselRef.current) {
+        setIsSwiping(true); // Start swiping
+        if (direction === 'left') {
+          ambianceCarouselRef.current.scrollTo({ count: -1, animated: true });
+        } else {
+          ambianceCarouselRef.current.scrollTo({ count: 1, animated: true });
+        }
+        setTimeout(() => setIsSwiping(false), 500); // End swiping after animation
       }
-      setTimeout(() => setIsSwiping(false), 500); // End swiping after animation
-    }
   };
 
   const handleVoiceScroll = (direction: 'left' | 'right') => {
@@ -385,12 +432,11 @@ export default function Details() {
                 width={screenWidth}
                 height={screenHeight * 0.07}
                 autoPlay={false}
-                data={voiceItems}
-                renderItem={({ item }) => (
-                  <View style={[styles.carouselItem, { height: screenHeight * 0.07, justifyContent: 'center', paddingBottom: 0 }]}>
-                    <Text style={styles.carouselText}>{item.label}</Text>
-                  </View>
-                )}
+                data={voiceItems.map((voice) => ({
+                  ...voice,
+                  tags: voices.find((v) => v.id === voice.value)?.tags || [],
+                }))}
+                renderItem={renderVoiceCarouselItem}
                 onSnapToItem={(index) => setVoiceId(voiceItems[index].value)}
               />
               <MaterialIcons
@@ -429,6 +475,33 @@ export default function Details() {
           ))}
         </ScrollView>
       </LinearGradient>
+      <Modal
+        visible={isModalVisible}
+        transparent={true}
+        animationType="fade"
+        onRequestClose={() => setIsModalVisible(false)}
+      >
+        <View style={styles.modalOverlay}>
+          <View style={styles.modalContent}>
+            <Text style={styles.modalTitle}>Voice Tags</Text>
+            {selectedVoiceTags.length > 0 ? (
+              selectedVoiceTags.map((tag, index) => (
+                <Text key={index} style={styles.modalTag}>
+                  {tag}
+                </Text>
+              ))
+            ) : (
+              <Text style={styles.modalTag}>No tags available</Text>
+            )}
+            <TouchableOpacity
+              style={styles.modalCloseButton}
+              onPress={() => setIsModalVisible(false)}
+            >
+              <Text style={styles.modalCloseButtonText}>Close</Text>
+            </TouchableOpacity>
+          </View>
+        </View>
+      </Modal>
     </View>
   );
 }
@@ -665,5 +738,49 @@ const styles = StyleSheet.create({
   },
   deleteIcon: {
     marginLeft: 10,
+  },
+  infoButton: {
+    position: 'absolute',
+    right: 10,
+    top: '40%',
+    transform: [{ translateY: -10 }],
+    backgroundColor: 'rgba(0, 0, 0, 0.5)',
+    borderRadius: 15,
+    padding: 5,
+  },
+  modalOverlay: {
+    flex: 1,
+    backgroundColor: 'rgba(0, 0, 0, 0.5)',
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  modalContent: {
+    backgroundColor: '#fff',
+    padding: 20,
+    borderRadius: 10,
+    width: '80%',
+    alignItems: 'center',
+  },
+  modalTitle: {
+    fontSize: 18,
+    fontWeight: 'bold',
+    marginBottom: 10,
+  },
+  modalTag: {
+    fontSize: 16,
+    color: '#333',
+    marginBottom: 5,
+  },
+  modalCloseButton: {
+    marginTop: 15,
+    backgroundColor: '#367588',
+    paddingVertical: 10,
+    paddingHorizontal: 20,
+    borderRadius: 5,
+  },
+  modalCloseButtonText: {
+    color: '#fff',
+    fontSize: 16,
+    fontWeight: 'bold',
   },
 });

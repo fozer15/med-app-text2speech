@@ -1,7 +1,7 @@
 import { StyleSheet, Button, FlatList, ActivityIndicator, TouchableOpacity, View } from 'react-native';
 import { useRouter } from 'expo-router';
 import { useEffect, useState } from 'react';
-import AsyncStorage from '@react-native-async-storage/async-storage';
+import fetchWithAuth from '@/utils/fetchWithAuth';
 
 import { ThemedView } from '@/components/ThemedView';
 import { ThemedText } from '@/components/ThemedText';
@@ -14,19 +14,7 @@ export default function Home() {
   useEffect(() => {
     const fetchMeditationTitles = async () => {
       try {
-        const token = await AsyncStorage.getItem('userToken');
-        if (!token) {
-          console.error('No token found');
-          setLoading(false);
-          return;
-        }
-
-        const response = await fetch('http://192.168.2.37:3000/meditation-titles', {
-          headers: {
-            Authorization: `Bearer ${token}`,
-          },
-        });
-
+        const response = await fetchWithAuth('http://192.168.2.37:3000/meditation-titles', {}, router);
         const data = await response.json();
         setTitles(data.titles || []);
       } catch (error) {
