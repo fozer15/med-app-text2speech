@@ -276,7 +276,7 @@ export default function Details() {
   );
 
   const renderVoiceCarouselItem = ({ item }: { item: { label: string; value: string; tags: string[] } }) => (
-    <View style={[styles.carouselItem, { height: screenHeight * 0.07, justifyContent:'center', paddingBottom: 0, width:'70%'}]}>
+    <View style={[styles.carouselItem, { height: screenHeight * 0.07, justifyContent:'center', paddingBottom: 0, width:'47%'}]}>
       <Text style={styles.carouselText}>{item.label}</Text>
       <TouchableOpacity
         style={styles.infoButton}
