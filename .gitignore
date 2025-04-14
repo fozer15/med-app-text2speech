@@ -117,3 +117,6 @@ buck-out/
 # Build artifacts
 build/
 dist/
+
+sounds/
+ambiances/
