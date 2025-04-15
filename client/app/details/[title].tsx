@@ -3,7 +3,7 @@ import { useRouter } from 'expo-router'; // Import useRouter for navigation
 import { Button, StyleSheet, Text, View, TextInput, ActivityIndicator, FlatList, Dimensions, Image, TouchableOpacity, Alert, ImageBackground, ScrollView, Modal } from 'react-native'; // Import ScrollView and Modal
 import * as FileSystem from 'expo-file-system';
 import AsyncStorage from '@react-native-async-storage/async-storage';
-import { useEffect, useState, useRef } from 'react'; // Import useRef
+import { useEffect, useState, useRef, startTransition } from 'react'; // Import useRef
 import { Audio } from 'expo-av';
 import Carousel from 'react-native-reanimated-carousel';
 import images from '../../utils/images';
@@ -11,6 +11,7 @@ import { MaterialIcons } from '@expo/vector-icons'; // Import icons from Expo
 import { counterEvent } from 'react-native/Libraries/Performance/Systrace';
 import { LinearGradient } from 'expo-linear-gradient'; // Import LinearGradient
 import fetchWithAuth from '../../utils/fetchWithAuth';
+import Slider from '@react-native-community/slider'; // Import Slider
 
 const { width: screenWidth, height: screenHeight } = Dimensions.get('window');
 
@@ -37,10 +38,12 @@ export default function Details() {
   const voiceCarouselRef = useRef<typeof Carousel<{ label: string; value: string }> | null>(null); // Ref for voice carousel
   const [isSwiping, setIsSwiping] = useState(false); // Track swiping status
   const [backgroundImage, setBackgroundImage] = useState(images[ambiance]); // Track the current background image
-  const [playbackStatus, setPlaybackStatus] = useState<{ positionMillis: number; durationMillis: number } | null>(null); // Track playback status
+  const [playbackStatus, setPlaybackStatus] = useState<{ fileUri: string | null; isPlaying: boolean } | null>(null); // Track playback status
   const [isModalVisible, setIsModalVisible] = useState(false); // State for modal visibility
   const [selectedVoiceTags, setSelectedVoiceTags] = useState<string[]>([]); // State for selected voice tags
   const [isDeleting, setIsDeleting] = useState<string | null>(null); // Track the file being deleted
+  const [meditationDurations, setMeditationDurations] = useState<{ [key: string]: number }>({}); // Store durations
+  const [sliderPositions, setSliderPositions] = useState<{ [key: string]: number }>({}); // State to track slider positions for each item
 
   async function fetchAmbiances() {
     try {
@@ -61,9 +64,9 @@ export default function Details() {
         ...data.categorizedVoices.female,
       ].map((voice) => ({
         ...voice,
-        tags: voice.tags
-          ?.filter((tag) => tag.startsWith('timbre:') || tag.startsWith('accent:'))
-          .map((tag) => tag.split(':')[1]), // Keep only the part after ":"
+        tags: voice.tags //checks null
+          ?.filter((tag: any) => tag?.startsWith('timbre:') || tag?.startsWith('accent:'))
+          .map((tag: any) => tag?.split(':')[1]), // Keep only the part after ":"
       }));
       setVoices(voicesList);
     } catch (error) {
@@ -106,42 +109,49 @@ export default function Details() {
 
   async function togglePlayPause(fileUri: string) {
     try {
-      if (currentlyPlaying === fileUri) {
-        // Pause the currently playing sound
+      const status = await sound?.getStatusAsync();
+
+      if (status && status.isLoaded && status.isPlaying && playbackStatus?.fileUri == fileUri) {
         if (sound) {
-          const status = await sound.getStatusAsync();
-          if (status.isLoaded) {
-            await sound.pauseAsync();
-            setPlaybackStatus({
-              positionMillis: status.positionMillis || 0,
-              durationMillis: status.durationMillis || 0,
-            }); // Save the current playback position
-          }
-          setCurrentlyPlaying(null); // Ensure currentlyPlaying is set to null
+          await sound.pauseAsync();
+          setCurrentlyPlaying(null); // Ensure currentlyPlaying is set to null, pauses the meditation
         }
       } else {
-        // Play the selected sound
-        if (sound) {
-          await sound.unloadAsync();
-        }
-        const { sound: newSound } = await Audio.Sound.createAsync({ uri: fileUri });
-        setSound(newSound);
-        setCurrentlyPlaying(fileUri);
-
-        // Listen to playback status updates
-        newSound.setOnPlaybackStatusUpdate((status) => {
-          if (status.isLoaded) {
-            setPlaybackStatus({
-              positionMillis: status.positionMillis || 0,
-              durationMillis: status.durationMillis || 0,
-            });
-          }
-        });
-
-        // Resume from the last saved position if available
-        if (playbackStatus?.positionMillis) {
-          await newSound.playFromPositionAsync(playbackStatus.positionMillis);
+        if (playbackStatus?.fileUri == fileUri && !playbackStatus?.isPlaying) {
+          await sound?.playFromPositionAsync(sliderPositions[fileUri.split('/').pop() || ''] || 0); // Use sliderPositions state
+          setCurrentlyPlaying(fileUri);
         } else {
+          if (sound) {
+            await sound.unloadAsync(); // Unload the previous sound
+          }
+          const { sound: newSound } = await Audio.Sound.createAsync({ uri: fileUri });
+          setSound(newSound);
+          setCurrentlyPlaying(fileUri);
+          newSound.setOnPlaybackStatusUpdate((status) => {
+            if (status.isLoaded) {
+              console.log(`Current position: ${status.positionMillis} / ${status.durationMillis}`);
+              const tolerance = 100; // 100ms tolerance for end-of-playback check
+              if (status.durationMillis! - status.positionMillis <= tolerance) {
+                setPlaybackStatus({
+                  fileUri,
+                  isPlaying: false,
+                });
+                setSliderPositions((prev) => ({
+                  ...prev,
+                  [fileUri.split('/').pop() || '']: 0, // Reset slider position to the beginning
+                }));
+              } else {
+                setPlaybackStatus({
+                  fileUri,
+                  isPlaying: status.isPlaying,
+                });
+                setSliderPositions((prev) => ({
+                  ...prev,
+                  [fileUri.split('/').pop() || '']: status.positionMillis || 0,
+                }));
+              }
+            }
+          });
           await newSound.playAsync();
         }
       }
@@ -150,19 +160,22 @@ export default function Details() {
     }
   }
 
-  async function seekToPosition(positionMillis: number) {
-    if (sound && currentlyPlaying) {
+  async function fetchMeditationDurations(files: string[]) {
+    const durations: { [key: string]: number } = {};
+    for (const file of files) {
+      const fileUri = `${FileSystem.documentDirectory}${file}`;
       try {
+        const { sound } = await Audio.Sound.createAsync({ uri: fileUri });
         const status = await sound.getStatusAsync();
         if (status.isLoaded) {
-          await sound.setPositionAsync(positionMillis);
-        } else {
-          console.error('Error seeking to position: Sound is not loaded.');
+          durations[file] = status.durationMillis || 0;
         }
+        await sound.unloadAsync(); // Unload the sound after fetching the duration
       } catch (error) {
-        console.error('Error seeking to position:', error);
+        console.error(`Error fetching duration for ${file}:`, error);
       }
     }
+    setMeditationDurations(durations);
   }
 
   async function fetchRelatedMeditations() {
@@ -174,6 +187,7 @@ export default function Details() {
         return fileTitle === title;
       });
       setRelatedMeditations(filteredFiles);
+      await fetchMeditationDurations(filteredFiles); // Fetch durations for the files
     } catch (error) {
       console.error('Error fetching related meditations:', error);
     }
@@ -260,7 +274,7 @@ export default function Details() {
     setBackgroundImage(images[ambiance]); // Directly update the background image without animation
   }, [ambiance]); // Run this effect whenever the ambiance changes
 
-  const formatTime = (millis: number) => {
+  const formatTime = (millis: number) => { // Time conversion
     const minutes = Math.floor(millis / 60000);
     const seconds = Math.floor((millis % 60000) / 1000);
     return `${minutes}:${seconds < 10 ? '0' : ''}${seconds}`;
@@ -276,7 +290,7 @@ export default function Details() {
   );
 
   const renderVoiceCarouselItem = ({ item }: { item: { label: string; value: string; tags: string[] } }) => (
-    <View style={[styles.carouselItem, { height: screenHeight * 0.07, justifyContent:'center', paddingBottom: 0, width:'47%'}]}>
+    <View style={[styles.carouselItem, { height: screenHeight * 0.07, justifyContent: 'center', paddingBottom: 0, width: '47%' }]}>
       <Text style={styles.carouselText}>{item.label}</Text>
       <TouchableOpacity
         style={styles.infoButton}
@@ -292,11 +306,33 @@ export default function Details() {
 
   const renderCreatedMeditationItem = ({ item }: { item: string }) => {
     const fileUri = `${FileSystem.documentDirectory}${item}`;
-    const isPlaying = currentlyPlaying === fileUri;
-    const progress =
-      isPlaying && playbackStatus
-        ? playbackStatus.positionMillis / playbackStatus.durationMillis
-        : 0;
+
+    const duration = meditationDurations[item] || 0; // Get the static duration for the file
+    const sliderPosition = sliderPositions[item] ?? 0; // Get the slider position for this item
+    const isPlaying = playbackStatus?.fileUri === fileUri && playbackStatus.isPlaying; // Check if the current file is playing
+
+    const handleSliderChange = async (value: number) => {
+      setSliderPositions((prev) => ({
+        ...prev,
+        [item]: value, // Update the slider position for this item
+      }));
+      if (playbackStatus?.fileUri === fileUri && sound) {
+        await sound.setPositionAsync(value); // Set the new position in the audio
+      }
+    };
+
+    const handleSlidingStart = async () => {
+      if (isPlaying && sound) {
+        await sound.pauseAsync(); // Pause the audio while dragging
+      }
+    };
+
+    const handleSlidingComplete = async (value: number) => {
+      await handleSliderChange(value); // Update the position
+      if (playbackStatus?.fileUri === fileUri && sound) {
+        await sound.playAsync(); // Resume playback after dragging
+      }
+    };
 
     return (
       <View style={styles.playlistItem} key={item}>
@@ -305,17 +341,27 @@ export default function Details() {
             {item?.split('_')[1].charAt(0).toUpperCase() + item?.split('_')[1].slice(1).toLowerCase() + " &" + " " + item?.split('_')[2].charAt(0).toUpperCase() + item?.split('_')[2].slice(1).toLowerCase().replace(".mp3", "")}
           </Text>
           <Text style={styles.timerText}>
-            {isPlaying && playbackStatus
-              ? `${formatTime(playbackStatus.positionMillis)} / ${formatTime(playbackStatus.durationMillis)}`
-              : '0:00 / 0:00'}
+            {formatTime(sliderPosition)} / {formatTime(duration)} {/* Show slider position dynamically */}
           </Text>
         </View>
-        <TouchableOpacity
-          style={styles.progressBarContainer}
-          activeOpacity={1}
-        >
-          <View style={[styles.progressBar, { width: `${progress * 100}%` }]} />
-        </TouchableOpacity>
+        <Slider
+          style={{ width: '100%', height: 40 }}
+          minimumValue={0}
+          maximumValue={duration}
+          value={sliderPosition}
+          minimumTrackTintColor="#367588" // Spotify green
+          maximumTrackTintColor="#FFFFFF"
+          thumbTintColor="#367588" // Thumb color
+          thumbImage={images['thumb']} // Use a small image
+          onSlidingStart={handleSlidingStart} // Pause playback when dragging starts
+          onSlidingComplete={handleSlidingComplete} // Resume playback when dragging ends
+          onValueChange={(value) =>
+            setSliderPositions((prev) => ({
+              ...prev,
+              [item]: value, // Update the slider position dynamically
+            }))
+          }
+        />
         <View style={styles.actionButtons}>
           <TouchableOpacity onPress={() => togglePlayPause(fileUri)}>
             <Image
@@ -336,18 +382,19 @@ export default function Details() {
           </TouchableOpacity>
         </View>
       </View>
-    );};
+    );
+  };
 
   const handleAmbianceScroll = (direction: 'left' | 'right') => {
-      if (ambianceCarouselRef.current) {
-        setIsSwiping(true); // Start swiping
-        if (direction === 'left') {
-          ambianceCarouselRef.current.scrollTo({ count: -1, animated: true });
-        } else {
-          ambianceCarouselRef.current.scrollTo({ count: 1, animated: true });
-        }
-        setTimeout(() => setIsSwiping(false), 500); // End swiping after animation
+    if (ambianceCarouselRef.current) {
+      setIsSwiping(true); // Start swiping
+      if (direction === 'left') {
+        ambianceCarouselRef.current.scrollTo({ count: -1, animated: true });
+      } else {
+        ambianceCarouselRef.current.scrollTo({ count: 1, animated: true });
       }
+      setTimeout(() => setIsSwiping(false), 500); // End swiping after animation
+    }
   };
 
   const handleVoiceScroll = (direction: 'left' | 'right') => {
@@ -385,7 +432,7 @@ export default function Details() {
         style={styles.fullScreenGradient} // Updated style to cover the whole screen
       >
         <ScrollView contentContainerStyle={styles.scrollContainer}>
-          <Text style={[styles.title, {marginBottom:"7%"}]}>{title}</Text>
+          <Text style={[styles.title, { marginBottom: "7%" }]}>{title}</Text>
           <View style={styles.pickerGroup}>
             <View style={styles.shadowedTitleContainer}>
               <Text style={styles.shadowedTitle}>Choose Your Ambiance</Text>
@@ -424,7 +471,7 @@ export default function Details() {
               <MaterialIcons
                 name="chevron-left"
                 size={37}
-                style={[styles.carouselIcon, styles.carouselIconLeft, { top: '25%'}]}
+                style={[styles.carouselIcon, styles.carouselIconLeft, { top: '25%' }]}
                 onPress={() => handleVoiceScroll('left')}
               />
               <Carousel
@@ -604,10 +651,10 @@ const styles = StyleSheet.create({
     flexDirection: 'column',
     justifyContent: 'center',
     alignItems: 'center',
-    paddingTop:15,
-    paddingBottom:12,
-    paddingLeft:20,
-    paddingRight:20,
+    paddingTop: 15,
+    paddingBottom: 12,
+    paddingLeft: 20,
+    paddingRight: 20,
     borderRadius: 20,
     width: '90%',
     alignSelf: 'center',
@@ -707,7 +754,7 @@ const styles = StyleSheet.create({
   scrollContainer: {
     flexGrow: 1,
     paddingTop: 20, // Add padding to the top of the page
-    paddingBottom:60, // Add padding to the bottom of the page
+    paddingBottom: 60, // Add padding to the bottom of the page
   },
   shadowedTitleContainer: {
     backgroundColor: 'rgba(0, 0, 0, 0.1)', // Semi-transparent black background
@@ -734,7 +781,7 @@ const styles = StyleSheet.create({
     justifyContent: 'space-between',
     width: '100%',
     marginTop: 10,
-    paddingHorizontal:2,
+    paddingHorizontal: 2,
   },
   deleteIcon: {
     marginLeft: 10,

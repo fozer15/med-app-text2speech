@@ -24,8 +24,20 @@ const speechify = new Speechify({
 });
 
 const soundsFolder = path.join(__dirname, "sounds");
+const meditationsFolder = path.join(soundsFolder, "meditations");
+const voicesFolder = path.join(soundsFolder, "voices");
+const ambiancesFolder = path.join(soundsFolder, "ambiances");
+
 if (!fs.existsSync(soundsFolder)) {
     fs.mkdirSync(soundsFolder); // Ensure the sounds folder exists
+}
+
+if (!fs.existsSync(meditationsFolder)) {
+    fs.mkdirSync(meditationsFolder); // Ensure the meditations folder exists
+}
+
+if (!fs.existsSync(voicesFolder)) {
+    fs.mkdirSync(voicesFolder); // Ensure the voices folder exists
 }
 
 async function getMeditations() {
@@ -72,15 +84,23 @@ async function generateAudio(title, ambiance, voiceId) {
         });
 
         const nodeStream = Readable.fromWeb(responseStream);
-        const outputFileName = path.join(soundsFolder, `${title.replace(/[^a-z0-9]/gi, "_").toLowerCase()}.mp3`);
+        const outputFileName = path.join(
+            voicesFolder,
+            `${title.replace(/[^a-z0-9]/gi, "_").toLowerCase()}.mp3`
+        );
         const writeStream = createWriteStream(outputFileName);
 
         await new Promise((resolve, reject) => {
             nodeStream.pipe(writeStream);
 
-            nodeStream.on("end", () => {
+            writeStream.on("finish", () => {
                 console.log(`Audio file saved successfully as ${outputFileName}.`);
                 resolve();
+            });
+
+            writeStream.on("error", (error) => {
+                console.error("Error writing audio file:", error);
+                reject(error);
             });
 
             nodeStream.on("error", (error) => {
@@ -90,7 +110,7 @@ async function generateAudio(title, ambiance, voiceId) {
         });
 
         // Validate input files
-        const ambianceFilePath = path.join(__dirname, "ambiances", `${ambiance}.mp3`);
+        const ambianceFilePath = path.join(ambiancesFolder, `${ambiance}.mp3`);
         if (!fs.existsSync(outputFileName) || fs.statSync(outputFileName).size === 0) {
             throw new Error(`Generated audio file is missing or empty: ${outputFileName}`);
         }
@@ -99,7 +119,7 @@ async function generateAudio(title, ambiance, voiceId) {
         }
 
         const mixedOutputFileName = path.join(
-            soundsFolder,
+            meditationsFolder,
             `${title.replace(/[^a-z0-9]/gi, "_").toLowerCase()}_with_${ambiance}_by_${voiceId}.mp3`
         );
 
@@ -117,7 +137,7 @@ async function generateAudio(title, ambiance, voiceId) {
                 .inputOptions("-stream_loop -1") // Loop the ambiance sound indefinitely
                 .complexFilter([
                     "[0:a]atempo=0.92,volume=1.8[a0]", // Adjust tempo and volume
-                    "[1:a]volume=0.32[a1]", // Adjust ambiance volume
+                    "[1:a]volume=0.34[a1]", // Adjust ambiance volume
                     "[a0][a1]amix=inputs=2:duration=first:dropout_transition=2[a]" // Mix audio streams
                 ])
                 .outputOptions([
@@ -151,7 +171,7 @@ app.post("/generate-audio", authMiddleware, async (req, res) => {
     }
 
     const outputFileName = path.join(
-        soundsFolder,
+        meditationsFolder,
         `${title.replace(/[^a-z0-9]/gi, "_").toLowerCase()}_with_${ambiance}_by_${voiceId}.mp3`
     );
 
@@ -190,7 +210,7 @@ app.post("/remove-file", authMiddleware, (req, res) => {
     }
 
     const fileName = `${title.replace(/[^a-z0-9]/gi, "_").toLowerCase()}_with_${ambiance}_by_${voiceId}.mp3`;
-    const filePath = path.join(soundsFolder, fileName);
+    const filePath = path.join(meditationsFolder, fileName);
 
     fs.unlink(filePath, (err) => {
       
@@ -247,10 +267,8 @@ app.get("/meditation-titles", authMiddleware, async (req, res) => {
     }
 });
 
-const AMBIANCES_FOLDER = path.join(__dirname, 'ambiances');
-
 app.get('/ambiances', authMiddleware, (req, res) => {
-    fs.readdir(AMBIANCES_FOLDER, (err, files) => {
+    fs.readdir(ambiancesFolder, (err, files) => {
       if (err) {
         console.error('Error reading ambiances folder:', err);
         return res.status(500).json({ error: 'Could not read ambiances folder' });

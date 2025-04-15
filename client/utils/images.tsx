@@ -9,6 +9,7 @@ const ambianceImages: Record<string, any> = {
     stream: require('../assets/images/ambiances/stream.jpg'),
     pause: require('../assets/images/icons/pause.png'),
     play: require('../assets/images/icons/play.png'),
+    thumb: require('../assets/images/icons/thumb.png'),
     // add all your ambiance keys and paths here
   };
   
