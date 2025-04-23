@@ -13,12 +13,6 @@ The app allows users to:
 
 Whether you're just starting your mindfulness practice or looking to deepen it, this app empowers users to **create their own perfect meditation environment**.
 
----
-
-> Built with React Native and audio playback using TrackPlayer, the app supports flexible audio control and a smooth mobile experience.
-
----
-
 ## 📂 Features
 - Guided meditations (SSML + voice narration)
 - Ambient sound selection
