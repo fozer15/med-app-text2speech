@@ -19,10 +19,6 @@ Whether you're just starting your mindfulness practice or looking to deepen it, 
 
 ---
 
-## 🚀 Getting Started
-
-[... you can fill this section in with setup instructions later ...]
-
 ## 📂 Features
 - Guided meditations (SSML + voice narration)
 - Ambient sound selection
