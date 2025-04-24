@@ -4,7 +4,7 @@ A fully customizable meditation experience designed to help users relax, reflect
 
 ---
 
-## 🎯 Purpose
+## Purpose
 
 This app empowers users to design their own meditation environment by offering full control over the audio experience. It is ideal for both beginners and experienced mindfulness practitioners.
 
@@ -17,7 +17,7 @@ Users can:
 
 ---
 
-## 🔧 Core Technologies
+## Core Technologies
 
 - **Spechify**  
   Used to generate natural and expressive voice narrations from SSML-based scripts. This enables dynamic, lifelike guided meditations tailored to various themes and moods.
