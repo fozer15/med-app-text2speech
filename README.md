@@ -1,6 +1,6 @@
 #  Custom Meditation App
 
-This project is a personalized meditation experience designed to help users relax, reflect, and recharge — on their own terms.
+Built with FFmpeg and Spechify, this personalized meditation app offers a smooth, high-quality experience by combining guided voice narration with ambient sounds 
 
 ##  Purpose
 
