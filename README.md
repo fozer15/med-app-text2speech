@@ -1,6 +1,6 @@
 #  Custom Meditation App
 
-Built with FFmpeg and Spechify, this personalized meditation app offers a smooth, high-quality experience by combining guided voice narration with ambient sounds 
+Built with FFmpeg and Speechify, this personalized meditation app offers a smooth, high-quality experience by combining guided voice narration with ambient sounds 
 
 ##  Purpose
 
