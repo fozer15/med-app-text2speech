@@ -19,7 +19,7 @@ Users can:
 
 ## Core Technologies
 
-- **Spechify**  
+- **Speechify**  
   Used to generate natural and expressive voice narrations from SSML-based scripts. This enables dynamic, lifelike guided meditations tailored to various themes and moods.
 
 - **FFmpeg**  
