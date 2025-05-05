@@ -33,7 +33,7 @@ export default function Details() {
     voices.map((voice) => ({ label: voice.displayName, value: voice.id }))
   );
   const [isPageLoading, setIsPageLoading] = useState(true); // New state for page loading
-  const [currentlyPlaying, setCurrentlyPlaying] = useState<string | null>(null); // Track the currently playing file
+  const [_, setCurrentlyPlaying] = useState<string | null>(null); // Track the currently playing file
   const ambianceCarouselRef = useRef<typeof Carousel<{ label: string; value: string; image?: any }> | null>(null); // Ref for ambiance carousel
   const voiceCarouselRef = useRef<typeof Carousel<{ label: string; value: string }> | null>(null); // Ref for voice carousel
   const [isSwiping, setIsSwiping] = useState(false); // Track swiping status
@@ -44,6 +44,13 @@ export default function Details() {
   const [isDeleting, setIsDeleting] = useState<string | null>(null); // Track the file being deleted
   const [meditationDurations, setMeditationDurations] = useState<{ [key: string]: number }>({}); // Store durations
   const [sliderPositions, setSliderPositions] = useState<{ [key: string]: number }>({}); // State to track slider positions for each item
+
+  const [isDragging, setIsDragging] = useState(false); // Track if the slider is being dragged
+  const isDraggingRef = useRef(false);
+
+  useEffect(() => {
+    isDraggingRef.current = isDragging; // Update the ref whenever isDragging changes
+  },[isDragging])
 
   async function fetchAmbiances() {
     try {
@@ -106,7 +113,7 @@ export default function Details() {
       setIsLoading(false); // Stop loading
     }
   }
-
+  
   async function togglePlayPause(fileUri: string) {
     try {
       const status = await sound?.getStatusAsync();
@@ -129,7 +136,6 @@ export default function Details() {
           setCurrentlyPlaying(fileUri);
           newSound.setOnPlaybackStatusUpdate((status) => {
             if (status.isLoaded) {
-              console.log(`Current position: ${status.positionMillis} / ${status.durationMillis}`);
               const tolerance = 100; // 100ms tolerance for end-of-playback check
               if (status.durationMillis! - status.positionMillis <= tolerance) {
                 setPlaybackStatus({
@@ -141,14 +147,16 @@ export default function Details() {
                   [fileUri.split('/').pop() || '']: 0, // Reset slider position to the beginning
                 }));
               } else {
-                setPlaybackStatus({
-                  fileUri,
-                  isPlaying: status.isPlaying,
-                });
-                setSliderPositions((prev) => ({
-                  ...prev,
-                  [fileUri.split('/').pop() || '']: status.positionMillis || 0,
-                }));
+                if (!isDraggingRef.current) {
+                  setPlaybackStatus({
+                    fileUri,
+                    isPlaying: status.isPlaying,
+                  });
+                  setSliderPositions((prev) => ({
+                    ...prev,
+                    [fileUri.split('/').pop() || '']: status.positionMillis || 0,
+                  }));
+                }
               }
             }
           });
@@ -308,9 +316,11 @@ export default function Details() {
     const fileUri = `${FileSystem.documentDirectory}${item}`;
 
     const duration = meditationDurations[item] || 0; // Get the static duration for the file
-    const sliderPosition = sliderPositions[item] ?? 0; // Get the slider position for this item
-    const isPlaying = playbackStatus?.fileUri === fileUri && playbackStatus.isPlaying; // Check if the current file is playing
+    let sliderPosition: number = 0;
 
+    sliderPosition = sliderPositions[item] ?? 0; // Get the slider position for this item
+
+    const isPlaying = playbackStatus?.fileUri === fileUri && playbackStatus.isPlaying; // Check if the current file is playing
     const handleSliderChange = async (value: number) => {
       setSliderPositions((prev) => ({
         ...prev,
@@ -321,17 +331,12 @@ export default function Details() {
       }
     };
 
-    const handleSlidingStart = async () => {
-      if (isPlaying && sound) {
-        await sound.pauseAsync(); // Pause the audio while dragging
-      }
-    };
-
     const handleSlidingComplete = async (value: number) => {
       await handleSliderChange(value); // Update the position
       if (playbackStatus?.fileUri === fileUri && sound) {
         await sound.playAsync(); // Resume playback after dragging
       }
+      setIsDragging(false); // Stop dragging
     };
 
     return (
@@ -345,7 +350,7 @@ export default function Details() {
           </Text>
         </View>
         <Slider
-          style={{ width: '100%', height: 40 }}
+          style={{ width: '100%', height: 40 }} // Adjusted height for better touch accessibility
           minimumValue={0}
           maximumValue={duration}
           value={sliderPosition}
@@ -353,7 +358,7 @@ export default function Details() {
           maximumTrackTintColor="#FFFFFF"
           thumbTintColor="#367588" // Thumb color
           thumbImage={images['thumb']} // Use a small image
-          onSlidingStart={handleSlidingStart} // Pause playback when dragging starts
+          onSlidingStart={() => setIsDragging(true)} // Set dragging state
           onSlidingComplete={handleSlidingComplete} // Resume playback when dragging ends
           onValueChange={(value) =>
             setSliderPositions((prev) => ({
@@ -512,13 +517,13 @@ export default function Details() {
           <Text style={[styles.title, { marginBottom: 18, marginTop: 13 }]}>
             My Meditation Playlist{' '}
           </Text>
-          {relatedMeditations.length === 0 && (
-            <Text style={{ textAlign: 'center', color: '#fff', fontSize: 16, marginTop: 5 }}>
-              (No meditations created yet)
-            </Text>
-          )}
-          {relatedMeditations.map((item, index) => (
-            <View key={index}>{renderCreatedMeditationItem({ item })}</View>
+
+          {relatedMeditations.length === 0 ? 
+          <Text style={{ textAlign: 'center', color: '#fff', fontSize: 16, marginTop: 5 }}>
+            (No meditations created yet)
+          </Text> 
+          : relatedMeditations.map((item, index) => (
+          <View key={index}>{renderCreatedMeditationItem({ item })}</View>
           ))}
         </ScrollView>
       </LinearGradient>
@@ -619,7 +624,7 @@ const styles = StyleSheet.create({
     borderRadius: 10,
   },
   carouselImage: {
-    width: '100%',
+    width: '82%',
     height: '85%', // Adjusted height for better visibility
     marginBottom: 10,
     borderRadius: 10,
@@ -710,10 +715,10 @@ const styles = StyleSheet.create({
     color: '#fff',
   },
   carouselIconLeft: {
-    left: 15, // Position the left icon
+    left: 8, // Position the left icon
   },
   carouselIconRight: {
-    right: 15, // Position the right icon
+    right: 8, // Position the right icon
   },
   createButton: {
     flexDirection: 'row',
