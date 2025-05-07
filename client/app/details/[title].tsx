@@ -1,17 +1,18 @@
 import { useLocalSearchParams } from 'expo-router';
 import { useRouter } from 'expo-router'; // Import useRouter for navigation
-import { Button, StyleSheet, Text, View, TextInput, ActivityIndicator, FlatList, Dimensions, Image, TouchableOpacity, Alert, ImageBackground, ScrollView, Modal } from 'react-native'; // Import ScrollView and Modal
+import { Button, StyleSheet, Text, View, TextInput, ActivityIndicator, FlatList, Dimensions, Image, TouchableOpacity, Alert, ImageBackground, ScrollView, Modal, Pressable } from 'react-native'; // Import ScrollView and Modal
 import * as FileSystem from 'expo-file-system';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { useEffect, useState, useRef, startTransition } from 'react'; // Import useRef
 import { Audio } from 'expo-av';
-import Carousel from 'react-native-reanimated-carousel';
+import Carousel, { ICarouselInstance } from 'react-native-reanimated-carousel';
 import images from '../../utils/images';
 import { MaterialIcons } from '@expo/vector-icons'; // Import icons from Expo
 import { counterEvent } from 'react-native/Libraries/Performance/Systrace';
 import { LinearGradient } from 'expo-linear-gradient'; // Import LinearGradient
 import fetchWithAuth from '../../utils/fetchWithAuth';
 import Slider from '@react-native-community/slider'; // Import Slider
+import { TouchableWithoutFeedback } from 'react-native'; // Import TouchableWithoutFeedback
 
 const { width: screenWidth, height: screenHeight } = Dimensions.get('window');
 
@@ -33,9 +34,8 @@ export default function Details() {
     voices.map((voice) => ({ label: voice.displayName, value: voice.id }))
   );
   const [isPageLoading, setIsPageLoading] = useState(true); // New state for page loading
-  const [_, setCurrentlyPlaying] = useState<string | null>(null); // Track the currently playing file
-  const ambianceCarouselRef = useRef<typeof Carousel<{ label: string; value: string; image?: any }> | null>(null); // Ref for ambiance carousel
-  const voiceCarouselRef = useRef<typeof Carousel<{ label: string; value: string }> | null>(null); // Ref for voice carousel
+  const ambianceCarouselRef = useRef<ICarouselInstance | null>(null); // Ref for ambiance carousel
+  const voiceCarouselRef = useRef<ICarouselInstance | null>(null); // Ref for voice carousel
   const [isSwiping, setIsSwiping] = useState(false); // Track swiping status
   const [backgroundImage, setBackgroundImage] = useState(images[ambiance]); // Track the current background image
   const [playbackStatus, setPlaybackStatus] = useState<{ fileUri: string | null; isPlaying: boolean } | null>(null); // Track playback status
@@ -72,9 +72,10 @@ export default function Details() {
       ].map((voice) => ({
         ...voice,
         tags: voice.tags //checks null
-          ?.filter((tag: any) => tag?.startsWith('timbre:') || tag?.startsWith('accent:'))
+          ?.filter((tag: any) => tag?.startsWith('timbre:'))// Filter tags that start with "timbre:"
           .map((tag: any) => tag?.split(':')[1]), // Keep only the part after ":"
-      }));
+      })). filter((voice) => (voice.tags.includes('relax')) || (voice.tags.includes('calm')) || (voice.tags.includes('deep'))); // Filter out voices without tags
+      console.log('Filtered voices:', voicesList);
       setVoices(voicesList);
     } catch (error) {
       console.error('Error fetching voices:', error);
@@ -121,19 +122,17 @@ export default function Details() {
       if (status && status.isLoaded && status.isPlaying && playbackStatus?.fileUri == fileUri) {
         if (sound) {
           await sound.pauseAsync();
-          setCurrentlyPlaying(null); // Ensure currentlyPlaying is set to null, pauses the meditation
         }
       } else {
         if (playbackStatus?.fileUri == fileUri && !playbackStatus?.isPlaying) {
           await sound?.playFromPositionAsync(sliderPositions[fileUri.split('/').pop() || ''] || 0); // Use sliderPositions state
-          setCurrentlyPlaying(fileUri);
+        
         } else {
           if (sound) {
             await sound.unloadAsync(); // Unload the previous sound
           }
           const { sound: newSound } = await Audio.Sound.createAsync({ uri: fileUri });
-          setSound(newSound);
-          setCurrentlyPlaying(fileUri);
+          setSound(newSound)
           newSound.setOnPlaybackStatusUpdate((status) => {
             if (status.isLoaded) {
               const tolerance = 100; // 100ms tolerance for end-of-playback check
@@ -314,27 +313,18 @@ export default function Details() {
 
   const renderCreatedMeditationItem = ({ item }: { item: string }) => {
     const fileUri = `${FileSystem.documentDirectory}${item}`;
-
     const duration = meditationDurations[item] || 0; // Get the static duration for the file
     let sliderPosition: number = 0;
-
     sliderPosition = sliderPositions[item] ?? 0; // Get the slider position for this item
-
     const isPlaying = playbackStatus?.fileUri === fileUri && playbackStatus.isPlaying; // Check if the current file is playing
-    const handleSliderChange = async (value: number) => {
+  
+    const handleSlidingComplete = async (value: number) => {
       setSliderPositions((prev) => ({
         ...prev,
         [item]: value, // Update the slider position for this item
       }));
       if (playbackStatus?.fileUri === fileUri && sound) {
-        await sound.setPositionAsync(value); // Set the new position in the audio
-      }
-    };
-
-    const handleSlidingComplete = async (value: number) => {
-      await handleSliderChange(value); // Update the position
-      if (playbackStatus?.fileUri === fileUri && sound) {
-        await sound.playAsync(); // Resume playback after dragging
+        await sound.playFromPositionAsync(value); // Set the new position in the audio
       }
       setIsDragging(false); // Stop dragging
     };
@@ -394,9 +384,9 @@ export default function Details() {
     if (ambianceCarouselRef.current) {
       setIsSwiping(true); // Start swiping
       if (direction === 'left') {
-        ambianceCarouselRef.current.scrollTo({ count: -1, animated: true });
+        ambianceCarouselRef.current.prev(); // Use the correct method to scroll left
       } else {
-        ambianceCarouselRef.current.scrollTo({ count: 1, animated: true });
+        ambianceCarouselRef.current.next(); // Use the correct method to scroll right
       }
       setTimeout(() => setIsSwiping(false), 500); // End swiping after animation
     }
@@ -406,9 +396,9 @@ export default function Details() {
     if (voiceCarouselRef.current) {
       setIsSwiping(true); // Start swiping
       if (direction === 'left') {
-        voiceCarouselRef.current.scrollTo({ count: -1, animated: true });
+        voiceCarouselRef.current.prev(); // Use the correct method to scroll left
       } else {
-        voiceCarouselRef.current.scrollTo({ count: 1, animated: true });
+        voiceCarouselRef.current.next(); // Use the correct method to scroll right
       }
       setTimeout(() => setIsSwiping(false), 500); // End swiping after animation
     }
@@ -443,12 +433,29 @@ export default function Details() {
               <Text style={styles.shadowedTitle}>Choose Your Ambiance</Text>
             </View>
             <View style={styles.carouselContainer}>
-              <MaterialIcons
-                name="chevron-left"
-                size={37}
-                style={[styles.carouselIcon, styles.carouselIconLeft]}
+              <Pressable
                 onPress={() => handleAmbianceScroll('left')}
-              />
+                style={({ pressed }) => [
+                  styles.carouselIcon,
+                  styles.carouselIconLeft,
+                  {
+                    top: '12%',
+                    height: '64%',
+                    transform: [{ scale: pressed ? 0.9 : 1 }],
+                    opacity: pressed ? 0.6 : 1,
+                    flexDirection: 'column',
+                    justifyContent: 'center',
+                    backgroundColor: pressed ? 'rgba(0, 0, 0, 0.5)' : 'none',
+                    borderRadius:10,
+                  },
+                ]}
+                >
+                <MaterialIcons
+                  name="chevron-left"
+                  size={37}
+                  color="#fff"    
+                />
+              </Pressable>
               <Carousel
                 ref={ambianceCarouselRef}
                 loop
@@ -459,12 +466,29 @@ export default function Details() {
                 renderItem={renderCarouselItem}
                 onSnapToItem={(index) => setAmbiance(ambianceItems[index].value)}
               />
-              <MaterialIcons
-                name="chevron-right"
-                size={37}
-                style={[styles.carouselIcon, styles.carouselIconRight]}
+              <Pressable
                 onPress={() => handleAmbianceScroll('right')}
-              />
+                style={({ pressed }) => [
+                  styles.carouselIcon,
+                  styles.carouselIconRight,
+                  {
+                    top: '12%',
+                    height: '64%',
+                    transform: [{ scale: pressed ? 0.9 : 1 }],
+                    opacity: pressed ? 0.6 : 1,
+                    flexDirection: 'column',
+                    justifyContent: 'center',
+                    backgroundColor: pressed ? 'rgba(0, 0, 0, 0.5)' : 'none',
+                    borderRadius:10,
+                  },
+                ]}
+                >
+                  <MaterialIcons
+                  name="chevron-right"
+                  size={37}
+                  color="#fff"
+                  />
+              </Pressable>
             </View>
           </View>
 
@@ -473,12 +497,29 @@ export default function Details() {
               <Text style={styles.shadowedTitle}>Choose Your Meditator</Text>
             </View>
             <View style={styles.carouselContainer}>
-              <MaterialIcons
-                name="chevron-left"
-                size={37}
-                style={[styles.carouselIcon, styles.carouselIconLeft, { top: '25%' }]}
+             <Pressable
                 onPress={() => handleVoiceScroll('left')}
-              />
+                style={({ pressed }) => [
+                  styles.carouselIcon,
+                  styles.carouselIconLeft,
+                  {
+                    top: 0,
+                    height: '100%',
+                    transform: [{ scale: pressed ? 0.9 : 1 }],
+                    opacity: pressed ? 0.6 : 1,
+                    flexDirection: 'column',
+                    justifyContent: 'center',
+                    backgroundColor: pressed ? 'rgba(0, 0, 0, 0.5)' : 'none',
+                    borderRadius:10,
+                  },
+                ]}
+                >
+                <MaterialIcons
+                  name="chevron-left"
+                  size={37}
+                  color="#fff"
+                />
+              </Pressable>
               <Carousel
                 ref={voiceCarouselRef}
                 width={screenWidth}
@@ -491,12 +532,29 @@ export default function Details() {
                 renderItem={renderVoiceCarouselItem}
                 onSnapToItem={(index) => setVoiceId(voiceItems[index].value)}
               />
-              <MaterialIcons
-                name="chevron-right"
-                size={37}
-                style={[styles.carouselIcon, styles.carouselIconRight, { top: '25%' }]}
+              <Pressable
                 onPress={() => handleVoiceScroll('right')}
-              />
+                style={({ pressed }) => [
+                  styles.carouselIcon,
+                  styles.carouselIconRight,
+                  {
+                    top: 0,
+                    height: '100%',
+                    transform: [{ scale: pressed ? 0.9 : 1 }],
+                    opacity: pressed ? 0.6 : 1,
+                    flexDirection: 'column',
+                    justifyContent: 'center',
+                    backgroundColor: pressed ? 'rgba(0, 0, 0, 0.5)' : 'none',
+                    borderRadius:10,
+                  },
+                ]}
+              >
+                <MaterialIcons
+                  name="chevron-right"
+                  size={37}
+                  color="#fff"
+                />
+              </Pressable>
             </View>
           </View>
 
@@ -621,13 +679,15 @@ const styles = StyleSheet.create({
     width: '94%', // Ensure consistent width
     alignSelf: 'center', // Center the item in the carousel
     alignItems: 'center',
+    height: '100%', // Adjusted height for better visibility
     borderRadius: 10,
+    justifyContent: 'center',
   },
   carouselImage: {
     width: '82%',
-    height: '85%', // Adjusted height for better visibility
+    height: '60%', // Adjusted height for better visibility
     marginBottom: 10,
-    borderRadius: 10,
+    borderRadius: 20,
     resizeMode: 'cover', // Ensures the image covers the area while maintaining aspect ratio
   },
   carouselText: {
@@ -691,7 +751,7 @@ const styles = StyleSheet.create({
     width: '100%',
     height: 10, // Increased height for better touch accessibility
     backgroundColor: 'rgba(255, 255, 255, 0.3)', // Background for the progress bar
-    borderRadius: 5, // Adjusted border radius for the new height
+    borderRadius: 10, // Adjusted border radius for the new height
     overflow: 'hidden',
     marginVertical: 10, // Increased margin for better spacing
   },
@@ -710,15 +770,16 @@ const styles = StyleSheet.create({
   carouselIcon: {
     position: 'absolute', // Position the icons absolutely
     zIndex: 1, // Ensure icons are above the carousel
-    top: '38%', // Vertically center the icons
     transform: [{ translateY: -15 }], // Adjust for icon size
     color: '#fff',
+    width: '10%',
+    // Semi-transparent background for better visibility
   },
   carouselIconLeft: {
-    left: 8, // Position the left icon
+    left: 2, // Position the left icon
   },
   carouselIconRight: {
-    right: 8, // Position the right icon
+    right: 2, // Position the right icon
   },
   createButton: {
     flexDirection: 'row',
@@ -727,7 +788,7 @@ const styles = StyleSheet.create({
     backgroundColor: '#367588', // Spotify green for a vibrant button
     paddingVertical: 12,
     paddingHorizontal: 20,
-    borderRadius: 25,
+    borderRadius: 20,
     marginTop: "7%",
     width: '70%', // Adjusted width for better visibility
     alignSelf: 'center', // Center the button
